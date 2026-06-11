@@ -143,28 +143,28 @@ elif pagina == "Simulação ao vivo":
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(
-            f"<div style='text-align: center; border: 2px solid #BDC3C7; border-radius: 10px; padding: 15px; background-color: #F8F9F9;'>"
-            f"<h4>🥈 Vice-Campeão</h4>"
-            f"<span style='font-size: 32px;'>{obter_bandeira(podio['vice'])}</span>"
-            f"<h3>{podio['vice']}</h3>"
+            f"<div style='text-align: center; border: 2px solid #F1C40F; border-radius: 10px; padding: 15px; background: linear-gradient(135deg, #FFFDEB 0%, #FEF5C3 100%); transform: scale(1.03); color: #1A252F;'>"
+            f"<h4 style='color: #7D6608; font-size: 15px; margin: 0 0 5px 0; font-weight: bold;'>🏆 CAMPEÃO 🏆</h4>"
+            f"<span style='font-size: 36px; display: inline-block; margin: 5px 0;'>{obter_bandeira(podio['campeao'])}</span>"
+            f"<h3 style='color: #1A252F; font-size: 18px; margin: 5px 0 0 0; font-weight: bold;'>{podio['campeao']}</h3>"
             f"</div>",
             unsafe_allow_html=True
         )
     with col2:
         st.markdown(
-            f"<div style='text-align: center; border: 2px solid #F1C40F; border-radius: 10px; padding: 20px; background-color: #FEF9E7; transform: scale(1.05);'>"
-            f"<h2>🏆 CAMPEÃO 🏆</h2>"
-            f"<span style='font-size: 48px;'>{obter_bandeira(podio['campeao'])}</span>"
-            f"<h2>{podio['campeao']}</h2>"
+            f"<div style='text-align: center; border: 2px solid #BDC3C7; border-radius: 10px; padding: 15px; background: linear-gradient(135deg, #F8F9F9 0%, #EBEDEF 100%); color: #2C3E50;'>"
+            f"<h4 style='color: #5D6D7E; font-size: 14px; margin: 0 0 5px 0; font-weight: bold;'>🥈 Vice-Campeão</h4>"
+            f"<span style='font-size: 28px; display: inline-block; margin: 5px 0;'>{obter_bandeira(podio['vice'])}</span>"
+            f"<h3 style='color: #2C3E50; font-size: 16px; margin: 5px 0 0 0; font-weight: bold;'>{podio['vice']}</h3>"
             f"</div>",
             unsafe_allow_html=True
         )
     with col3:
         st.markdown(
-            f"<div style='text-align: center; border: 2px solid #D35400; border-radius: 10px; padding: 15px; background-color: #FBEEE6;'>"
-            f"<h4>🥉 3º Colocado</h4>"
-            f"<span style='font-size: 32px;'>{obter_bandeira(podio['terceiro'])}</span>"
-            f"<h3>{podio['terceiro']}</h3>"
+            f"<div style='text-align: center; border: 2px solid #D35400; border-radius: 10px; padding: 15px; background: linear-gradient(135deg, #FBEEE6 0%, #F5CBA7 100%); color: #2C3E50;'>"
+            f"<h4 style='color: #A04000; font-size: 14px; margin: 0 0 5px 0; font-weight: bold;'>🥉 3º Colocado</h4>"
+            f"<span style='font-size: 28px; display: inline-block; margin: 5px 0;'>{obter_bandeira(podio['terceiro'])}</span>"
+            f"<h3 style='color: #2C3E50; font-size: 16px; margin: 5px 0 0 0; font-weight: bold;'>{podio['terceiro']}</h3>"
             f"</div>",
             unsafe_allow_html=True
         )
@@ -202,7 +202,7 @@ elif pagina == "Simulação ao vivo":
                 pen_text = f" <span style='font-size:12px; color:gray;'>(Pen: {obter_bandeira(pen_v)} {pen_v})</span>" if pen_v else ""
                 
                 st.markdown(
-                    f"<div style='border: 1px solid #EAEDED; border-radius: 5px; padding: 10px; margin-bottom: 10px; background-color: white;'>"
+                    f"<div style='border: 1px solid #EAEDED; border-radius: 5px; padding: 10px; margin-bottom: 10px; background-color: white; color: #1A252F;'>"
                     f" {styled_casa} &nbsp; **{g_c}** <br> "
                     f" {styled_visit} &nbsp; **{g_v}** {pen_text}"
                     f"</div>",
