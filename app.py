@@ -195,16 +195,15 @@ elif pagina == "Simulação ao vivo":
                 venc = jogo["vencedor"]
                 pen_v = jogo["penaltis_vencedor"]
                 
-                # Destacar vencedor
-                styled_casa = f"**{t_casa}**" if venc == jogo["home_team"] else t_casa
-                styled_visit = f"**{t_visit}**" if venc == jogo["away_team"] else t_visit
+                # Destacar vencedor usando HTML <b> (evitando conflito com asteriscos do markdown)
+                styled_casa = f"<b>{t_casa}</b>" if venc == jogo["home_team"] else t_casa
+                styled_visit = f"<b>{t_visit}</b>" if venc == jogo["away_team"] else t_visit
                 
-                pen_text = f" <span style='font-size:12px; color:gray;'>(Pen: {obter_bandeira(pen_v)} {pen_v})</span>" if pen_v else ""
+                pen_text = f" <span style='font-size:11px; color:gray;'>(Pen: {obter_bandeira(pen_v)} {pen_v})</span>" if pen_v else ""
                 
                 st.markdown(
-                    f"<div style='border: 1px solid #EAEDED; border-radius: 5px; padding: 10px; margin-bottom: 10px; background-color: white; color: #1A252F;'>"
-                    f" {styled_casa} &nbsp; **{g_c}** <br> "
-                    f" {styled_visit} &nbsp; **{g_v}** {pen_text}"
+                    f"<div style='border: 1px solid #EAEDED; border-radius: 5px; padding: 8px; margin-bottom: 10px; background-color: white; color: #1A252F; text-align: center; font-size: 13px;'>"
+                    f"{styled_casa} &nbsp;<b>{g_c}x{g_v}</b>&nbsp; {styled_visit}{pen_text}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
