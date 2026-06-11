@@ -10,25 +10,39 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Load environment variables from .env
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+def get_database_url():
+    """
+    Retorna a URL do banco de dados, buscando das variáveis de ambiente
+    ou diretamente do Streamlit secrets como fallback.
+    """
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        try:
+            import streamlit as st
+            if "DATABASE_URL" in st.secrets:
+                url = st.secrets["DATABASE_URL"]
+        except Exception:
+            pass
+    return url
 
 def get_engine():
     """
     Retorna o engine do SQLAlchemy para ler/escrever tabelas (ex: com pandas).
     """
-    if not DATABASE_URL:
+    url = get_database_url()
+    if not url:
         raise ValueError("A variável de ambiente DATABASE_URL não está configurada.")
-    return create_engine(DATABASE_URL)
+    return create_engine(url)
 
 def get_raw_connection():
     """
     Retorna uma conexão bruta (raw connection) do psycopg2 para operações de carga em massa (COPY).
     Trata URLs de conexão com caracteres especiais na senha.
     """
-    if not DATABASE_URL:
+    url = get_database_url()
+    if not url:
         raise ValueError("A variável de ambiente DATABASE_URL não está configurada.")
     
-    url = DATABASE_URL
     try:
         # Remover prefixo do esquema
         if url.startswith("postgresql://"):
