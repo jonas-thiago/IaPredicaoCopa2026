@@ -1,0 +1,26 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Models
+models/*.pkl
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Agentic / Assistant files
+.agents/
+skills-lock.json
