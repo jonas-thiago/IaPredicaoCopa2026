@@ -1,0 +1,1 @@
+# IaPredicaoCopa2026
