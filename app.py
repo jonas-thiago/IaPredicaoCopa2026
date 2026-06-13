@@ -3,6 +3,10 @@ import sys
 import altair as alt
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # Configuração da página Streamlit (deve ser a primeira chamada Streamlit)
 st.set_page_config(
@@ -22,7 +26,7 @@ try:
 except Exception:
     pass
 
-from db import get_engine
+from db import get_engine, get_raw_connection
 from previsao import prever_jogo
 from monte_carlo import NOMES_RODADA, preparar, simular_torneio_detalhado, slots_terceiros
 from bandeiras import com_bandeira, obter_bandeira
@@ -44,15 +48,11 @@ preparado = carregar_dados_preparados()
 df_grupos = preparado["df_grupos"]
 selecoes_todas = sorted(df_grupos["nation"].unique())
 
-# Título principal do dashboard
-st.title("🏆 IAPredict — Previsão da Copa do Mundo 2026")
-st.markdown("---")
-
 # Barra Lateral (Menu de Navegação)
 st.sidebar.title("Navegação")
 pagina = st.sidebar.radio(
     "Ir para:",
-    ["Probabilidades pré-computadas", "Simulação ao vivo", "Explorador de partidas"]
+    ["Probabilidades pré-computadas", "Simulação ao vivo", "Explorador de partidas", "Painel do Agente & Resultados"]
 )
 
 st.sidebar.markdown("---")
@@ -60,17 +60,54 @@ st.sidebar.info(
     "**IAPredict** é um modelo matemático baseado em distribuição Poisson e ELO dinâmico que estima a probabilidade de desempenho de cada seleção na Copa de 2026. Feito com ❤️ e dados históricos reais."
 )
 
+# Título principal do dashboard
+st.title("🏆 IAPredict — Previsão da Copa do Mundo 2026")
+st.markdown("---")
+
+# Funções Auxiliares para gravação e limpeza de dados
+def salvar_resultado_banco(time_casa, time_visitante, gols_casa, gols_visitante):
+    conn = get_raw_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE silver_copa2026
+                SET gols_casa = %s, gols_visitante = %s
+                WHERE time_casa = %s AND time_visitante = %s;
+            """, (gols_casa, gols_visitante, time_casa, time_visitante))
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar resultado: {e}")
+        return False
+    finally:
+        conn.close()
+
+def resetar_resultados_banco():
+    conn = get_raw_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE silver_copa2026 SET gols_casa = NULL, gols_visitante = NULL;")
+            cur.execute("DELETE FROM copa_mata_mata_resultados;")
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao resetar: {e}")
+        return False
+    finally:
+        conn.close()
+
 # --- PÁGINA 1: Probabilidades Pré-computadas ---
 if pagina == "Probabilidades pré-computadas":
     st.header("📊 Probabilidades do Torneio (Visão Geral)")
     st.markdown(
-        "Essas probabilidades são derivadas de **1.000 simulações de Monte Carlo** completas da Copa 2026. Abaixo estão as 12 seleções favoritas ao título."
+        "Essas probabilidades são calculadas rodando as simulações de Monte Carlo baseadas nos resultados reais gravados no banco de dados."
     )
     
     try:
         df_prob = carregar_probabilidades_banco()
     except Exception as e:
         st.error(f"Erro ao carregar dados do banco: {e}")
+        st.info("💡 Dica: Se o banco estiver vazio, acesse a página 'Painel do Agente & Resultados' e clique para rodar uma simulação inicial.")
         st.stop()
         
     df_top12 = df_prob.head(12).copy()
@@ -123,12 +160,11 @@ if pagina == "Probabilidades pré-computadas":
 elif pagina == "Simulação ao vivo":
     st.header("⚡ Simulação em Tempo Real do Torneio")
     st.markdown(
-        "Abaixo, rodamos **uma única simulação aleatória** do torneio completo (fase de grupos e todas as etapas de mata-mata até a final). Cada clique no botão roda uma nova simulação."
+        "Abaixo, rodamos **uma única simulação aleatória** do torneio completo a partir do estado atual registrado no banco de dados. Clique para ver uma projeção possível."
     )
     
     # Botão para re-simular
     if st.button("🔄 Rodar Nova Simulação"):
-        # Limpar cache da simulação para forçar re-execução
         st.cache_resource.clear()
         
     # Executar simulação de uma rodada
@@ -195,7 +231,7 @@ elif pagina == "Simulação ao vivo":
                 venc = jogo["vencedor"]
                 pen_v = jogo["penaltis_vencedor"]
                 
-                # Destacar vencedor usando HTML <b> (evitando conflito com asteriscos do markdown)
+                # Destacar vencedor usando HTML <b>
                 styled_casa = f"<b>{t_casa}</b>" if venc == jogo["home_team"] else t_casa
                 styled_visit = f"<b>{t_visit}</b>" if venc == jogo["away_team"] else t_visit
                 
@@ -317,3 +353,141 @@ elif pagina == "Explorador de partidas":
                 f"ℹ️ *Informações de força: ELO {time_casa} = **{elo_times.get(time_casa, 1500.0):.1f}** | "
                 f"ELO {time_visitante} = **{elo_times.get(time_visitante, 1500.0):.1f}***"
             )
+
+# --- PÁGINA 4: Painel do Agente & Resultados ---
+elif pagina == "Painel do Agente & Resultados":
+    st.header("🤖 Painel do Agente Predictor & Registro de Resultados")
+    st.markdown(
+        "Nesta página, você pode registrar resultados reais das partidas da Copa do Mundo para atualizar o modelo de simulação de Monte Carlo. Você também pode conversar diretamente com o Agente de IA para fazer perguntas e comandar simulações."
+    )
+    
+    col_reg, col_chat = st.columns(2)
+    
+    with col_reg:
+        st.subheader("📝 Registrar Placar da Fase de Grupos")
+        
+        # Ler jogos da Copa do banco
+        df_jogos_copa = preparado["df_jogos_copa"]
+        
+        # Filtros de busca
+        times_disponiveis = sorted(list(set(df_jogos_copa["time_casa"].tolist() + df_jogos_copa["time_visitante"].tolist())))
+        time_busca = st.selectbox("Filtrar jogos por seleção:", ["Todos"] + times_disponiveis)
+        
+        if time_busca != "Todos":
+            jogos_filtrados = df_jogos_copa[(df_jogos_copa["time_casa"] == time_busca) | (df_jogos_copa["time_visitante"] == time_busca)]
+        else:
+            jogos_filtrados = df_jogos_copa
+            
+        # Criar texto legível para o dropdown de partidas
+        def format_jogo(row):
+            status = ""
+            if pd.notna(row["gols_casa"]) and pd.notna(row["gols_visitante"]):
+                status = f" (Placar: {int(row['gols_casa'])}x{int(row['gols_visitante'])})"
+            return f"{row['time_casa']} vs {row['time_visitante']}{status}"
+            
+        lista_opcoes = [format_jogo(row) for _, row in jogos_filtrados.iterrows()]
+        
+        if not lista_opcoes:
+            st.info("Nenhum jogo encontrado para a seleção filtrada.")
+        else:
+            jogo_selecionado_txt = st.selectbox("Selecione a partida para atualizar:", lista_opcoes)
+            
+            # Recuperar linha correspondente
+            index_selecionado = lista_opcoes.index(jogo_selecionado_txt)
+            row_selecionado = jogos_filtrados.iloc[index_selecionado]
+            
+            time_c = row_selecionado["time_casa"]
+            time_v = row_selecionado["time_visitante"]
+            
+            gols_c_atual = int(row_selecionado["gols_casa"]) if pd.notna(row_selecionado["gols_casa"]) else 0
+            gols_v_atual = int(row_selecionado["gols_visitante"]) if pd.notna(row_selecionado["gols_visitante"]) else 0
+            
+            st.markdown(f"**Atualizando placar de:** {com_bandeira(time_c)} vs {com_bandeira(time_v)}")
+            
+            col_c, col_v = st.columns(2)
+            with col_c:
+                gols_c = st.number_input(f"Gols - {time_c}", min_value=0, max_value=20, value=gols_c_atual, step=1, key="gols_c_input")
+            with col_v:
+                gols_v = st.number_input(f"Gols - {time_v}", min_value=0, max_value=20, value=gols_v_atual, step=1, key="gols_v_input")
+                
+            if st.button("💾 Salvar Resultado", use_container_width=True):
+                if salvar_resultado_banco(time_c, time_v, gols_c, gols_v):
+                    st.success(f"Resultado salvo! {time_c} {gols_c} x {gols_v} {time_v}")
+                    # Limpar cache e recarregar dados do banco
+                    st.cache_resource.clear()
+                    st.cache_data.clear()
+                    st.rerun()
+                    
+        st.markdown("---")
+        st.subheader("⚙️ Ações Globais")
+        
+        if st.button("🚨 Resetar Todos os Resultados Reais", use_container_width=True, help="Limpa todos os resultados reais e volta a Copa para o estado original 0x0 simulado"):
+            if resetar_resultados_banco():
+                st.success("Copa do Mundo resetada com sucesso para o estado inicial!")
+                st.cache_resource.clear()
+                st.cache_data.clear()
+                st.rerun()
+                
+    with col_chat:
+        st.subheader("🤖 Conversar com o IA Predictor")
+        
+        # Verificar se as chaves de API estão definidas no .env
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
+        if not api_key:
+            st.warning("⚠️ **Chave de API do Gemini não configurada no arquivo .env!**")
+            st.info("Para conversar com o agente de IA, configure a variável **GEMINI_API_KEY** em seu arquivo **.env** na raiz do projeto e reinicie o app.")
+        else:
+            try:
+                from agent import obter_agente
+                agent = obter_agente()
+            except Exception as e:
+                st.error(f"Erro ao inicializar o agente: {e}")
+                agent = None
+                
+            if agent:
+                # Inicializar chat history na sessão
+                if "messages" not in st.session_state:
+                    st.session_state.messages = [
+                        {"role": "assistant", "content": "Olá! Sou o IA Predictor. Posso ajudar você a ver a classificação atual da Copa, simular o torneio com base nos resultados inseridos, apontar quem está eliminado e te dar palpites dramáticos sobre o Brasil! O que deseja fazer?"}
+                    ]
+                    
+                # Exibir mensagens
+                for msg in st.session_state.messages:
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+                        
+                # Entrada do usuário
+                if prompt := st.chat_input("Ex: 'Rode a simulação da Copa', 'Quem está eliminado?', 'Qual a classificação do grupo C?'"):
+                    # Exibir entrada
+                    with st.chat_message("user"):
+                        st.write(prompt)
+                    st.session_state.messages.append({"role": "user", "content": prompt})
+                    
+                    # Chamar agente
+                    with st.chat_message("assistant"):
+                        with st.spinner("Processando e raciocinando..."):
+                            try:
+                                config = {"configurable": {"thread_id": "streamlit-session"}}
+                                result = agent.invoke({"messages": [{"role": "user", "content": prompt}]}, config=config)
+                                raw_content = result["messages"][-1].content
+                                
+                                # Processar se for lista (blocos de conteúdo) ou string pura
+                                if isinstance(raw_content, list):
+                                    response_text = ""
+                                    for block in raw_content:
+                                        if isinstance(block, dict) and block.get("type") == "text":
+                                            response_text += block.get("text", "")
+                                        elif isinstance(block, str):
+                                            response_text += block
+                                else:
+                                    response_text = str(raw_content)
+                                    
+                                st.write(response_text)
+                                st.session_state.messages.append({"role": "assistant", "content": response_text})
+                                
+                                # Se a resposta menciona que a simulação foi executada, limpa o cache de dados das tabelas
+                                if "SIMULAÇÃO CONCLUÍDA" in response_text or "atualizada com sucesso" in response_text.lower():
+                                    st.cache_data.clear()
+                            except Exception as ex:
+                                st.error(f"Erro ao executar o agente: {ex}")

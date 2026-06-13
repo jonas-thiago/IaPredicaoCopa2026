@@ -88,9 +88,8 @@ slots_terceiros = ['3ABCDF', '3CDFGH', '3CEFHI', '3EHIJK', '3BEFIJ', '3AEHIJ', '
 
 def preparar():
     """
-    Carrega modelos e dados estáticos e retorna um dicionário com tudo pronto para simulações.
+    Carrega modelos e dados do Supabase e retorna um dicionário pronto para simulações.
     """
-    # Obter o diretório raiz do projeto
     dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 1. Carregar pickles de modelo
@@ -101,17 +100,24 @@ def preparar():
     with open(os.path.join(dir_path, "models/colunas_atributos.pkl"), "rb") as f:
         colunas_atributos = pickle.load(f)
         
-    # Carregar ELOs do banco
+    # Carregar dados do banco de dados
     engine = get_engine()
+    
+    # ELOs do banco
     df_elo = pd.read_sql("SELECT selecao, elo FROM silver_elo_atual", engine)
     elo_times = dict(zip(df_elo["selecao"], df_elo["elo"]))
     
-    # Carregar CSVs locais
-    df_grupos = pd.read_csv(os.path.join(dir_path, "data/grupos_copa2026.csv"))
-    df_calendario = pd.read_csv(os.path.join(dir_path, "data/calendario_copa2026.csv"))
+    # Grupos da copa_grupos
+    df_grupos = pd.read_sql('SELECT grupo AS "group", posicao AS "position", selecao AS "nation" FROM copa_grupos', engine)
     
-    # Carregar silver_copa2026 do banco
-    df_jogos_copa = pd.read_sql("SELECT time_casa, time_visitante, neutro FROM silver_copa2026", engine)
+    # Calendário da copa_calendario_mata_mata
+    df_calendario = pd.read_sql('SELECT match_id, rodada AS "round", match_date, match_time, home_slot, away_slot, winner_advances_to, loser_advances_to FROM copa_calendario_mata_mata ORDER BY CAST(SUBSTRING(match_id FROM 2) AS INTEGER)', engine)
+    
+    # Jogos de grupos da silver_copa2026
+    df_jogos_copa = pd.read_sql('SELECT time_casa, time_visitante, neutro, gols_casa, gols_visitante FROM silver_copa2026', engine)
+    
+    # Resultados reais de mata-mata
+    df_resultados_mata_mata = pd.read_sql('SELECT match_id, home_team, away_team, gols_casa, gols_visitante, vencedor, penaltis_vencedor FROM copa_mata_mata_resultados', engine)
     
     return {
         "model_casa": model_casa,
@@ -120,12 +126,13 @@ def preparar():
         "elo_times": elo_times,
         "df_grupos": df_grupos,
         "df_calendario": df_calendario,
-        "df_jogos_copa": df_jogos_copa
+        "df_jogos_copa": df_jogos_copa,
+        "df_resultados_mata_mata": df_resultados_mata_mata
     }
 
 def simular_torneio_detalhado(preparado):
     """
-    Executa UMA simulação detalhada da Copa 2026 e retorna:
+    Executa UMA simulação detalhada da Copa 2026 considerando os resultados reais já inseridos, e retorna:
     - podio: dict com 'campeao', 'vice', 'terceiro', 'quarto'
     - grupos_classificacao: dict de DataFrames de classificação por grupo
     - mata_mata: lista de jogos simulados no mata-mata
@@ -137,6 +144,7 @@ def simular_torneio_detalhado(preparado):
     df_jogos_copa = preparado["df_jogos_copa"]
     df_grupos = preparado["df_grupos"]
     df_calendario = preparado["df_calendario"]
+    df_resultados_mata_mata = preparado.get("df_resultados_mata_mata", pd.DataFrame())
     
     grupos_letras = sorted(df_grupos["group"].unique())
     selecoes_todas = df_grupos["nation"].unique()
@@ -156,11 +164,15 @@ def simular_torneio_detalhado(preparado):
         t_visit = row["time_visitante"]
         neutro = bool(row["neutro"])
         
-        l_c, l_v = obter_lambdas(t_casa, t_visit, neutro, elo_times, model_casa, model_visit, colunas_atributos)
-        
-        g_casa = np.random.poisson(l_c)
-        g_visit = np.random.poisson(l_v)
-        
+        # Se os gols estão preenchidos no banco, é um resultado real
+        if pd.notna(row["gols_casa"]) and pd.notna(row["gols_visitante"]):
+            g_casa = int(row["gols_casa"])
+            g_visit = int(row["gols_visitante"])
+        else:
+            l_c, l_v = obter_lambdas(t_casa, t_visit, neutro, elo_times, model_casa, model_visit, colunas_atributos)
+            g_casa = np.random.poisson(l_c)
+            g_visit = np.random.poisson(l_v)
+            
         stats[t_casa]["gols_pro"] += g_casa
         stats[t_casa]["gols_contra"] += g_visit
         stats[t_casa]["saldo"] += (g_casa - g_visit)
@@ -240,6 +252,11 @@ def simular_torneio_detalhado(preparado):
     # 2. Simular Fase de Mata-mata
     mata_mata = []
     
+    # Converter resultados reais do mata-mata para busca por match_id
+    real_mm = {}
+    if not df_resultados_mata_mata.empty:
+        real_mm = dict(zip(df_resultados_mata_mata["match_id"], df_resultados_mata_mata.to_dict("records")))
+        
     for _, row in df_calendario.iterrows():
         m_id = row["match_id"]
         rodada = row["round"]
@@ -249,28 +266,40 @@ def simular_torneio_detalhado(preparado):
         time_h = slot_values[h_slot]
         time_a = slot_values[a_slot]
         
-        l_c, l_v = obter_lambdas(time_h, time_a, neutro=True, elo_times=elo_times, model_casa=model_casa, model_visit=model_visit, colunas_atributos=colunas_atributos)
-        
-        g_h = np.random.poisson(l_c)
-        g_a = np.random.poisson(l_v)
-        
-        penaltis_vencedor = None
-        
-        if g_h > g_a:
-            winner, loser = time_h, time_a
-        elif g_h < g_a:
-            winner, loser = time_a, time_h
+        # Se já tiver resultado real para este jogo de mata-mata no banco
+        if m_id in real_mm:
+            match_real = real_mm[m_id]
+            time_h = match_real["home_team"]
+            time_a = match_real["away_team"]
+            g_h = int(match_real["gols_casa"])
+            g_a = int(match_real["gols_visitante"])
+            winner = match_real["vencedor"]
+            penaltis_vencedor = match_real["penaltis_vencedor"]
+            if pd.isna(penaltis_vencedor):
+                penaltis_vencedor = None
         else:
-            # Pênaltis
-            if np.random.rand() < 0.5:
+            l_c, l_v = obter_lambdas(time_h, time_a, neutro=True, elo_times=elo_times, model_casa=model_casa, model_visit=model_visit, colunas_atributos=colunas_atributos)
+            
+            g_h = np.random.poisson(l_c)
+            g_a = np.random.poisson(l_v)
+            
+            penaltis_vencedor = None
+            
+            if g_h > g_a:
                 winner, loser = time_h, time_a
-                penaltis_vencedor = time_h
-            else:
+            elif g_h < g_a:
                 winner, loser = time_a, time_h
-                penaltis_vencedor = time_a
-                
+            else:
+                # Pênaltis
+                if np.random.rand() < 0.5:
+                    winner, loser = time_h, time_a
+                    penaltis_vencedor = time_h
+                else:
+                    winner, loser = time_a, time_h
+                    penaltis_vencedor = time_a
+                    
         slot_values[f"W{m_id[1:]}"] = winner
-        slot_values[f"RU{m_id[1:]}"] = loser
+        slot_values[f"RU{m_id[1:]}"] = time_a if winner == time_h else time_h
         
         mata_mata.append({
             "match_id": m_id,
@@ -300,62 +329,25 @@ def simular_torneio_detalhado(preparado):
         "mata_mata": mata_mata
     }
 
-
 def main():
     load_dotenv()
     
-    # Carregar modelos e atributos
-    print("Carregando modelos e atributos salvos...")
-    try:
-        with open("models/modelo_poisson_casa.pkl", "rb") as f:
-            model_casa = pickle.load(f)
-        with open("models/modelo_poisson_visitante.pkl", "rb") as f:
-            model_visit = pickle.load(f)
-        with open("models/colunas_atributos.pkl", "rb") as f:
-            colunas_atributos = pickle.load(f)
-    except Exception as e:
-        print(f"Erro ao carregar arquivos pickle de modelo: {e}")
-        sys.exit(1)
-        
-    engine = get_engine()
+    print("Carregando dados preparados a partir do Supabase...")
+    preparado = preparar()
     
-    # Carregar ELOs atuais
-    print("Carregando ELOs atuais...")
-    try:
-        df_elo = pd.read_sql("SELECT selecao, elo FROM silver_elo_atual", engine)
-    except Exception as e:
-        print(f"Erro ao ler silver_elo_atual: {e}")
-        sys.exit(1)
-    elo_times = dict(zip(df_elo["selecao"], df_elo["elo"]))
+    elo_times = preparado["elo_times"]
+    df_jogos_copa = preparado["df_jogos_copa"]
+    df_grupos = preparado["df_grupos"]
+    df_calendario = preparado["df_calendario"]
+    df_resultados_mata_mata = preparado["df_resultados_mata_mata"]
+    model_casa = preparado["model_casa"]
+    model_visit = preparado["model_visit"]
+    colunas_atributos = preparado["colunas_atributos"]
     
-    # Carregar jogos futuros (fase de grupos da Copa)
-    print("Carregando jogos de grupo da Copa de 2026...")
-    try:
-        df_jogos_copa = pd.read_sql("SELECT time_casa, time_visitante, neutro FROM silver_copa2026", engine)
-    except Exception as e:
-        print(f"Erro ao ler silver_copa2026: {e}")
-        sys.exit(1)
-        
-    # Carregar configuração de grupos
-    print("Carregando a configuração dos grupos da Copa...")
-    if not os.path.exists("data/grupos_copa2026.csv"):
-        print("Erro: data/grupos_copa2026.csv não encontrado.")
-        sys.exit(1)
-    df_grupos = pd.read_csv("data/grupos_copa2026.csv")
-    
-    # Carregar calendário/estrutura do mata-mata
-    print("Carregando calendário de mata-mata da Copa...")
-    if not os.path.exists("data/calendario_copa2026.csv"):
-        print("Erro: data/calendario_copa2026.csv não encontrado.")
-        sys.exit(1)
-    df_calendario = pd.read_csv("data/calendario_copa2026.csv")
-    
-    # Dicionário de grupos: selecao -> grupo
-    time_para_grupo = dict(zip(df_grupos["nation"], df_grupos["group"]))
     grupos_letras = sorted(df_grupos["group"].unique()) # A a L
+    selecoes_todas = df_grupos["nation"].unique()
     
     # Mapear seleções para a contagem de sucessos por fase
-    selecoes_todas = df_grupos["nation"].unique()
     contadores = {
         time: {"grupo": 0, "oitavas": 0, "quartas": 0, "semi": 0, "final": 0, "campea": 0}
         for time in selecoes_todas
@@ -366,10 +358,13 @@ def main():
     seed = 42
     np.random.seed(seed)
     
-    slots_terceiros = ['3ABCDF', '3CDFGH', '3CEFHI', '3EHIJK', '3BEFIJ', '3AEHIJ', '3EFGIJ', '3DEIJL']
-    
     print(f"\nIniciando {N} simulações de Monte Carlo (seed={seed})...")
     
+    # Converter resultados reais do mata-mata para busca rápida por match_id
+    real_mm = {}
+    if not df_resultados_mata_mata.empty:
+        real_mm = dict(zip(df_resultados_mata_mata["match_id"], df_resultados_mata_mata.to_dict("records")))
+        
     for sim in range(N):
         # Dicionário de estatísticas da rodada para cada seleção
         stats = {
@@ -377,27 +372,25 @@ def main():
             for t in selecoes_todas
         }
         
-        # 1. Simular Fase de Grupos (72 jogos)
+        # 1. Simular Fase de Grupos
         for _, row in df_jogos_copa.iterrows():
             t_casa = row["time_casa"]
             t_visit = row["time_visitante"]
             neutro = bool(row["neutro"])
             
-            # Obter lambdas
-            l_c, l_v = obter_lambdas(t_casa, t_visit, neutro, elo_times, model_casa, model_visit, colunas_atributos)
-            
-            # Sortear gols via Poisson
-            g_casa = np.random.poisson(l_c)
-            g_visit = np.random.poisson(l_v)
-            
-            # Atualizar saldo e gols pró
+            if pd.notna(row["gols_casa"]) and pd.notna(row["gols_visitante"]):
+                g_casa = int(row["gols_casa"])
+                g_visit = int(row["gols_visitante"])
+            else:
+                l_c, l_v = obter_lambdas(t_casa, t_visit, neutro, elo_times, model_casa, model_visit, colunas_atributos)
+                g_casa = np.random.poisson(l_c)
+                g_visit = np.random.poisson(l_v)
+                
             stats[t_casa]["gols_pro"] += g_casa
             stats[t_casa]["saldo"] += (g_casa - g_visit)
-            
             stats[t_visit]["gols_pro"] += g_visit
             stats[t_visit]["saldo"] += (g_visit - g_casa)
             
-            # Pontuação
             if g_casa > g_visit:
                 stats[t_casa]["pontos"] += 3
             elif g_casa == g_visit:
@@ -411,20 +404,16 @@ def main():
         terceiros_candidatos = []
         
         for g in grupos_letras:
-            # Seleções do grupo g
             times_grupo = df_grupos[df_grupos["group"] == g]["nation"].tolist()
             
-            # Ordenar por: pontos -> saldo -> gols_pro -> random (todos descrescentes)
             times_grupo.sort(
                 key=lambda t: (stats[t]["pontos"], stats[t]["saldo"], stats[t]["gols_pro"], stats[t]["random"]),
                 reverse=True
             )
             
-            # 1º e 2º colocados avançam direto
             slot_values[f"1{g}"] = times_grupo[0]
             slot_values[f"2{g}"] = times_grupo[1]
             
-            # 3º colocado vai para a lista de repescagem
             t3 = times_grupo[2]
             terceiros_candidatos.append({
                 "time": t3,
@@ -435,20 +424,15 @@ def main():
                 "random": stats[t3]["random"]
             })
             
-        # Classificar os terceiros colocados
         terceiros_candidatos.sort(
             key=lambda x: (x["pontos"], x["saldo"], x["gols_pro"], x["random"]),
             reverse=True
         )
         
-        # Selecionar os 8 melhores
         melhores_terceiros = terceiros_candidatos[:8]
-        
-        # Mapeamento bipartido para preencher os slots 3xxxx
         map_terceiros = designar_terceiros(melhores_terceiros, slots_terceiros)
         slot_values.update(map_terceiros)
         
-        # Coletar todos os 32 classificados da fase de grupos
         classificados_32 = [slot_values[f"1{g}"] for g in grupos_letras] + \
                            [slot_values[f"2{g}"] for g in grupos_letras] + \
                            [slot_values[s] for s in slots_terceiros]
@@ -456,40 +440,42 @@ def main():
         for t in classificados_32:
             contadores[t]["grupo"] += 1
             
-        # 2. Simular Fase de Mata-mata (M73 a M104)
+        # 2. Simular Fase de Mata-mata
         for _, row in df_calendario.iterrows():
             m_id = row["match_id"]
             rodada = row["round"]
             h_slot = row["home_slot"]
             a_slot = row["away_slot"]
             
-            # Resolver times nos slots
             time_h = slot_values[h_slot]
             time_a = slot_values[a_slot]
             
-            # Simular jogo em campo neutro (Copa mata-mata)
-            l_c, l_v = obter_lambdas(time_h, time_a, neutro=True, elo_times=elo_times, model_casa=model_casa, model_visit=model_visit, colunas_atributos=colunas_atributos)
-            
-            g_h = np.random.poisson(l_c)
-            g_a = np.random.poisson(l_v)
-            
-            # Decisão
-            if g_h > g_a:
-                winner, loser = time_h, time_a
-            elif g_h < g_a:
-                winner, loser = time_a, time_h
+            if m_id in real_mm:
+                match_real = real_mm[m_id]
+                time_h = match_real["home_team"]
+                time_a = match_real["away_team"]
+                g_h = int(match_real["gols_casa"])
+                g_a = int(match_real["gols_visitante"])
+                winner = match_real["vencedor"]
             else:
-                # Pênaltis (50/50)
-                if np.random.rand() < 0.5:
+                l_c, l_v = obter_lambdas(time_h, time_a, neutro=True, elo_times=elo_times, model_casa=model_casa, model_visit=model_visit, colunas_atributos=colunas_atributos)
+                
+                g_h = np.random.poisson(l_c)
+                g_a = np.random.poisson(l_v)
+                
+                if g_h > g_a:
                     winner, loser = time_h, time_a
-                else:
+                elif g_h < g_a:
                     winner, loser = time_a, time_h
-                    
-            # Atualizar slots para próximas fases
+                else:
+                    if np.random.rand() < 0.5:
+                        winner, loser = time_h, time_a
+                    else:
+                        winner, loser = time_a, time_h
+                        
             slot_values[f"W{m_id[1:]}"] = winner
-            slot_values[f"RU{m_id[1:]}"] = loser
+            slot_values[f"RU{m_id[1:]}"] = time_a if winner == time_h else time_h
             
-            # Incrementar marcos de fases
             if rodada == "R32":
                 contadores[winner]["oitavas"] += 1
             elif rodada == "R16":
@@ -516,16 +502,12 @@ def main():
     df_prob = pd.DataFrame(prob_list)
     df_prob = df_prob.sort_values(by="prob_campea", ascending=False).reset_index(drop=True)
     
-    # Imprimir inventário e favoritas
+    # Imprimir favoritas
     print("\n" + "=" * 60)
-    print(" INVENTÁRIO DO MONTE CARLO: COPA 2026 ".center(60))
+    print(" FAVORITAS AO TÍTULO (MONTE CARLO) ".center(60))
     print("=" * 60)
-    print("Top 10 Favoritas ao Título (Média Monte Carlo):")
     for idx, row in df_prob.head(10).iterrows():
         print(f"  {idx+1:>2}. {row['selecao']:<20} | Semis: {row['prob_semi']*100:>5.1f}% | Final: {row['prob_final']*100:>5.1f}% | Campeã: {row['prob_campea']*100:>5.1f}%")
-    print("-" * 60)
-    print(f"Soma de prob_campea de todos os times: {df_prob['prob_campea'].sum() * 100:.1f}%")
-    print(f"Soma de prob_grupo (times classificados): {df_prob['prob_grupo'].sum():.1f} (esperado: 32)")
     print("=" * 60 + "\n")
     
     # 4. Gravação no banco de dados
@@ -562,11 +544,11 @@ def main():
             """, buf)
             
         conn.commit()
-        print("Tabela gold_probabilidades_copa carregada com sucesso!")
+        print("Tabela gold_probabilidades_copa atualizada com sucesso no Supabase!")
         
     except Exception as e:
         conn.rollback()
-        print(f"Erro ao gravar probabilidades do Monte Carlo: {e}")
+        print(f"Erro ao gravar probabilidades no banco: {e}")
         sys.exit(1)
     finally:
         conn.close()

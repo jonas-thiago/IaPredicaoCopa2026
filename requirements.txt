@@ -5,3 +5,10 @@ python-dotenv
 statsmodels
 scipy
 streamlit
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langgraph>=1.0,<2.0
+langsmith>=0.3.0
+langchain-google-genai
+langchain-tavily
+tavily-python
