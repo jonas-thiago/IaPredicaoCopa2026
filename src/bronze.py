@@ -85,6 +85,7 @@ def main():
                     pais text NOT NULL,
                     neutro boolean NOT NULL
                 );
+                ALTER TABLE bronze_jogos ENABLE ROW LEVEL SECURITY;
             """)
             
             # Carga em massa usando COPY a partir de um buffer em memória

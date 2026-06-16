@@ -137,6 +137,7 @@ def main():
                     elo_casa double precision NOT NULL,
                     elo_visitante double precision NOT NULL
                 );
+                ALTER TABLE silver_elo_pre_jogo ENABLE ROW LEVEL SECURITY;
             """)
             
             print("Preparando buffer e executando COPY para silver_elo_pre_jogo...")
@@ -160,6 +161,7 @@ def main():
                     selecao text NOT NULL UNIQUE,
                     elo double precision NOT NULL
                 );
+                ALTER TABLE silver_elo_atual ENABLE ROW LEVEL SECURITY;
             """)
             
             print("Preparando buffer e executando COPY para silver_elo_atual...")

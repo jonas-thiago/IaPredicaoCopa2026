@@ -141,6 +141,7 @@ def main():
                     mae_visitante double precision NOT NULL,
                     acuracia double precision NOT NULL
                 );
+                ALTER TABLE metricas_validacao ENABLE ROW LEVEL SECURITY;
             """)
             cur.execute("""
                 INSERT INTO metricas_validacao (mae_casa, mae_visitante, acuracia)

@@ -235,6 +235,7 @@ def main():
                     prob_empate double precision NOT NULL,
                     prob_derrota double precision NOT NULL
                 );
+                ALTER TABLE previsoes ENABLE ROW LEVEL SECURITY;
             """)
             print("Preparando buffer e executando COPY para previsoes...")
             buf_prev = io.StringIO()
@@ -260,6 +261,7 @@ def main():
                     mae_casa double precision NOT NULL,
                     mae_visitante double precision NOT NULL
                 );
+                ALTER TABLE experimentos_mae ENABLE ROW LEVEL SECURITY;
             """)
             print("Preparando buffer e executando COPY para experimentos_mae...")
             buf_exp = io.StringIO()

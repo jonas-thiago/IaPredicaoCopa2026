@@ -530,6 +530,7 @@ def main():
                     prob_final double precision NOT NULL,
                     prob_campea double precision NOT NULL
                 );
+                ALTER TABLE gold_probabilidades_copa ENABLE ROW LEVEL SECURITY;
             """)
             
             print("Preparando buffer e executando COPY para gold_probabilidades_copa...")

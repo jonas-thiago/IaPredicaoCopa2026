@@ -111,6 +111,7 @@ def main():
                     peso_torneio integer NOT NULL,
                     peso_recencia double precision NOT NULL
                 );
+                ALTER TABLE silver_ponderado ENABLE ROW LEVEL SECURITY;
             """)
             
             print("Preparando buffer CSV em memória...")

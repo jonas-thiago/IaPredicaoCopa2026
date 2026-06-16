@@ -75,5 +75,5 @@ def get_raw_connection():
     except Exception as e:
         # Fallback para o método original caso o parse manual falhe
         print(f"Aviso: O parse manual da DATABASE_URL falhou ({e}). Tentando conexão direta...")
-        return psycopg2.connect(DATABASE_URL)
+        return psycopg2.connect(url)
 

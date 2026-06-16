@@ -121,6 +121,7 @@ def main():
                     gols_casa integer NOT NULL,
                     gols_visitante integer NOT NULL
                 );
+                ALTER TABLE gold_atributos ENABLE ROW LEVEL SECURITY;
             """)
             
             print("Preparando buffer e executando COPY para gold_atributos...")

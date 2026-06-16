@@ -34,6 +34,7 @@ def main():
                     posicao integer NOT NULL,
                     selecao text NOT NULL
                 );
+                ALTER TABLE copa_grupos ENABLE ROW LEVEL SECURITY;
             """)
             
             # Inserir dados de grupos
@@ -57,6 +58,7 @@ def main():
                     winner_advances_to text NOT NULL,
                     loser_advances_to text
                 );
+                ALTER TABLE copa_calendario_mata_mata ENABLE ROW LEVEL SECURITY;
             """)
             
             # Inserir dados de calendário
@@ -85,6 +87,7 @@ def main():
                     vencedor text NOT NULL,
                     penaltis_vencedor text
                 );
+                ALTER TABLE copa_mata_mata_resultados ENABLE ROW LEVEL SECURITY;
             """)
             
         conn.commit()

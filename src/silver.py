@@ -38,6 +38,7 @@ def criar_tabela_silver(cur, nome_tabela):
             neutro boolean NOT NULL,
             eh_amistoso boolean NOT NULL
         );
+        ALTER TABLE {nome_tabela} ENABLE ROW LEVEL SECURITY;
     """)
 
 def carregar_tabela_silver(cur, nome_tabela, df):
